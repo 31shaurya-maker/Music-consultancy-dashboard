@@ -102,6 +102,23 @@ def pct_bar(series, title, order=None, horizontal=True):
     return fig
 
 
+def explain(shows, meaning):
+    """Plain-language interpretation shown under every chart (recomputed for the current filters)."""
+    st.markdown(f"<div style='font-size:0.92rem;line-height:1.45;margin:-0.4rem 0 1.1rem 0'>"
+                f"<b>What it shows:</b> {shows}<br><b>Why it matters:</b> {meaning}</div>", unsafe_allow_html=True)
+
+
+def top(series):
+    s = series.astype(object)
+    s = s[~s.isin(NONRESP)].value_counts(normalize=True)
+    return (str(s.index[0]), 100 * s.iloc[0]) if len(s) else ("-", 0.0)
+
+
+def share(series, values):
+    s = series.astype(object)
+    return 100 * s.isin(values).mean()
+
+
 def cramers_v(ct):
     chi, p, dof, exp = stats.chi2_contingency(ct, correction=False)
     k = min(ct.shape) - 1
@@ -182,14 +199,34 @@ with tabs[1]:
     a, b = st.columns(2)
     with a:
         chart(pct_bar(df.Q1_Age_Group, "Age group (Q1)", list(df_all.Q1_Age_Group.cat.categories)))
+        t_, v_ = top(df.Q1_Age_Group)
+        explain(f"The largest age group is {t_} ({v_:.0f}%); all respondents are 18-35 by design.",
+                "Messaging, content and channels should speak to early-career singers who are still building a path.")
         chart(pct_bar(df.Q3_Location, "Location (Q3)"))
+        explain(f"{share(df.Q3_Location, ['Metro city', 'Tier-2 city']):.0f}% live in a metro or Tier-2 city.",
+                "In-person services (gigs, networking events) should launch where venues are concentrated; "
+                "smaller towns can be served online.")
         chart(pct_bar(df.Q5_Monthly_Personal_Income, "Personal income, INR/month (Q5)",
                       list(df_all.Q5_Monthly_Personal_Income.cat.categories)))
+        inc_low = [c for c in df_all.Q5_Monthly_Personal_Income.cat.categories
+                   if c not in NONRESP][:2]
+        explain(f"{share(df.Q5_Monthly_Personal_Income, inc_low):.1f}% earn ₹30,000 a month or less.",
+                "Most target customers have modest budgets, so a low-cost entry option and income-linked tiers are needed.")
     with b:
         chart(pct_bar(df.Q4_Occupation, "Occupation (Q4)"))
+        t_, v_ = top(df.Q4_Occupation)
+        explain(f"The most common occupation is '{t_}' ({v_:.0f}%); "
+                f"{share(df.Q4_Occupation, ['Full-time musician']):.0f}% are full-time musicians.",
+                "Most singers fit music around study or work, so sessions should be flexible (evenings, weekends, online).")
         chart(pct_bar(df.Q9_Artist_Status.astype(str).str.replace(", or occasional management", " / occasional mgmt"),
                       "Artist status (Q9)"))
+        explain(f"{share(df.Q9_Artist_Status, ['Independent - no label or management']):.0f}% work with no label "
+                "or manager at all.",
+                "This is the gap the consultancy fills: most singers have no professional team guiding their career.")
         chart(pct_bar(df.Q8_Primary_Genre, "Primary genre (Q8)"))
+        t_, v_ = top(df.Q8_Primary_Genre)
+        explain(f"'{t_}' is the most common genre ({v_:.0f}%), but several genres are well represented.",
+                "The mentor and venue network has to cover more than one genre to serve the market.")
     st.subheader("Experience and music earnings")
     a, b, c3 = st.columns(3)
     for col, box, unit in [(a, "Q6_Years_Singing", ""), (b, "Q10_Paid_Performances_3M", ""),
@@ -202,6 +239,11 @@ with tabs[1]:
             chart(fig, 330)
     st.caption("Money and gig variables are right-skewed, so the dashed median is the typical value; a few high "
                "values pull the mean up.")
+    explain(f"The typical singer has sung for {df.Q6_Years_Singing.median():.0f} years; "
+            f"{100 * (df.Q10_Paid_Performances_3M.dropna() == 0).mean():.0f}% had no paid gig in the last three months "
+            f"and {100 * (df.Q11_Monthly_Music_Income_INR.dropna() == 0).mean():.0f}% earn nothing from music "
+            f"(median ₹{df.Q11_Monthly_Music_Income_INR.median():,.0f}).",
+            "Experience is there but earnings are not: the core promise should be turning experience into paid work.")
 
 # ------------------------------------------------------------------ 3 Challenges & services
 with tabs[2]:
@@ -218,6 +260,10 @@ with tabs[2]:
     a, b = st.columns(2)
     with a:
         chart(fig, 420)
+        explain(f"Every challenge averages above the midpoint; the highest is '{ch.Challenge.iloc[-1]}' "
+                f"({ch['Mean (1-5)'].iloc[-1]:.2f}) and the lowest is '{ch.Challenge.iloc[0]}' "
+                f"({ch['Mean (1-5)'].iloc[0]:.2f}).",
+                "The biggest pain points are about access to the industry, so the main promise should be opening doors.")
     sv = pd.DataFrame({"Service": list(Q16.values()), "% selecting": [100 * df[c].mean() for c in Q16]}
                       ).sort_values("% selecting")
     fig = px.bar(sv, x="% selecting", y="Service", orientation="h", text=sv["% selecting"].round(1).astype(str) + "%",
@@ -226,6 +272,10 @@ with tabs[2]:
     fig.update_yaxes(title="")
     with b:
         chart(fig, 420)
+        t3 = list(sv.Service.iloc[::-1][:3])
+        explain(f"The most wanted services are {t3[0]} ({sv['% selecting'].iloc[-1]:.0f}%), {t3[1]} and {t3[2]}; "
+                f"the least wanted is {sv.Service.iloc[0]} ({sv['% selecting'].iloc[0]:.0f}%).",
+                "Demand mirrors the challenges, so the core package should be built around the top services.")
     st.subheader("Does a challenge go with wanting its matching service?")
     pick = st.selectbox("Choose a challenge", list(Q14), format_func=Q14.get)
     svc = MATCH[pick]
@@ -240,6 +290,15 @@ with tabs[2]:
     a, b = st.columns([1.3, 1])
     with a:
         chart(fig, 360)
+        if len(rate) == 3 and rate["size"].min() > 0:
+            gap = 100 * (rate["mean"].iloc[2] - rate["mean"].iloc[0])
+            explain(f"{100 * rate['mean'].iloc[2]:.0f}% of singers who rate this challenge 4-5 want "
+                    f"'{Q16[svc]}', compared with {100 * rate['mean'].iloc[0]:.0f}% of those rating it 1-2 "
+                    f"(a gap of {gap:.0f} points).",
+                    "A bigger gap means the need is specific, which supports starting each sale with a short "
+                    "challenge assessment and recommending the matching service." if gap >= 10 else
+                    "The gap is small, so this challenge does not reliably drive demand for its service; it is "
+                    "better offered as a free add-on or workshop than as a paid product.")
     ct = pd.crosstab(t.Level, t.Selected)
     with b:
         if ct.shape == (3, 2):
@@ -276,6 +335,12 @@ with tabs[3]:
             r, p = stats.spearmanr(dd.iloc[:, 0], dd.iloc[:, 1])
             st.caption(f"Spearman ρ = {r:.2f} ({strength_rho(r)}), p = {p:.3g}, n = {len(dd)}. Y-axis cut at the "
                        "97th percentile for readability; all values are used in the statistic.")
+            med = d.groupby("Q5_Monthly_Personal_Income", observed=True).Q20_WTP_Monthly_INR.median().reindex(inc_order).dropna()
+            if len(med) >= 2:
+                explain(f"Median WTP rises from ₹{med.iloc[0]:,.0f} in the lowest income band to "
+                        f"₹{med.iloc[-1]:,.0f} in the highest ({strength_rho(r)} positive link, ρ = {r:.2f}).",
+                        "Singers pay from their overall budget, so prices should be tiered by income rather than "
+                        "set as one flat fee.")
     bands = ["0", "1-999", "1,000-2,499", "2,500-4,999", "5,000+"]
     wb = df.DER_WTP_Band.astype(object).value_counts().reindex(bands).fillna(0)
     fig = px.bar(x=bands, y=100 * wb / wb.sum(), text=(100 * wb / wb.sum()).round(0).astype(int).astype(str) + "%",
@@ -284,6 +349,11 @@ with tabs[3]:
     fig.update_layout(xaxis_title="WTP band, INR/month", yaxis_title="% of valid answers")
     with b:
         chart(fig, 400)
+        explain(f"{100 * (w >= 2499).mean():.0f}% would pay the assumed ₹2,499 basic price, "
+                f"{100 * (w >= 1499).mean():.0f}% would pay the ₹1,499 entry price, and {100 * (w == 0).mean():.0f}% "
+                "would pay nothing.",
+                "Price is the main barrier: a lower entry tier widens the market, while the basic price suits only "
+                "about a third of singers.")
     if st.checkbox("Show sensitivity: include imputed WTP values (IMP_ column)"):
         st.info(f"Imputed version (income-band median fills {df.FLAG_Q20_Imputed.sum()} blanks): median "
                 f"₹{df.IMP_Q20_WTP_Monthly_INR.median():,.0f}, mean ₹{df.IMP_Q20_WTP_Monthly_INR.mean():,.0f} vs observed "
@@ -294,10 +364,23 @@ with tabs[4]:
     a, b = st.columns(2)
     with a:
         chart(pct_bar(df.Q17_Package_Preference, "Package preference (Q17) - stated, not purchased"))
+        t_, v_ = top(df.Q17_Package_Preference)
+        explain(f"'{t_}' is the most preferred format ({v_:.0f}%).",
+                "This should be the default offer, with single services as a low-risk entry point.")
         chart(pct_bar(df.Q18_Delivery_Mode, "Delivery mode (Q18)"))
+        t_, v_ = top(df.Q18_Delivery_Mode)
+        explain(f"'{t_}' is the most preferred delivery mode ({v_:.0f}%).",
+                "Combining online sessions with in-person events keeps costs down while still giving real industry access.")
     with b:
         chart(pct_bar(df.Q21_Payment_Model, "Payment model (Q21) - stated, not purchased"))
+        t_, v_ = top(df.Q21_Payment_Model)
+        explain(f"Preferences are spread out; the most common is '{t_}' ({v_:.0f}%).",
+                "No single payment model suits everyone, so payment options should be matched to the package "
+                "(see the comparison below).")
         chart(pct_bar(df.Q22_Most_Important_Factor, "Most important decision factor (Q22)"))
+        t_, v_ = top(df.Q22_Most_Important_Factor)
+        explain(f"'{t_}' is the most common deciding factor ({v_:.0f}%).",
+                "The sales message should lead with this factor, backed by clear proof of results.")
     grp = st.selectbox("Compare package preference across", ["Q5_Monthly_Personal_Income", "DER_WTP_Band",
                                                               "Q4_Occupation", "Q23_Consultancy_Interest",
                                                               "Q21_Payment_Model"], format_func=CATEG.get)
@@ -313,6 +396,11 @@ with tabs[4]:
         chi, p, dof, v, low = cramers_v(ct)
         st.caption(f"Chi-square = {chi:.1f}, df = {dof}, p = {p:.3g}, Cramér's V = {v:.2f}, n = {int(ct.values.sum())}."
                    + (" ⚠️ Some expected counts < 5." if low > .2 else ""))
+        vs = "negligible" if v < .1 else "small" if v < .3 else "medium" if v < .5 else "large"
+        explain(f"Each bar shows how package choice splits within one {CATEG[grp].lower()} group. The association is "
+                f"{vs} (Cramér's V = {v:.2f}, p = {p:.3g}).",
+                "Where the bars differ clearly, the package offer should be tailored to that group; where they look "
+                "alike, one default offer works for everyone.")
 
 # ------------------------------------------------------------------ 6 Diagnostics
 with tabs[5]:
@@ -325,6 +413,13 @@ with tabs[5]:
         chart(fig, 560)
         st.caption("Spearman ρ uses ranks, so it suits ordinal answers and skewed money values. |ρ| < .1 negligible, "
                    ".1–.3 weak, .3–.5 moderate, > .5 strong. Correlation does not show causation.")
+        cu = corr.where(~np.eye(len(corr), dtype=bool)).stack()
+        if len(cu):
+            i_ = cu.abs().idxmax()
+            explain(f"Darker blue means a stronger positive link and red a negative one. The strongest link here is "
+                    f"{i_[0]} with {i_[1]} (ρ = {cu[i_]:.2f}, {strength_rho(cu[i_])}).",
+                    "The strongest links show which signals best identify likely customers, such as how many services "
+                    "a singer wants and how much they are willing to pay.")
     st.subheader("Explore any pair")
     a, b = st.columns(2)
     xv = a.selectbox("X variable", list(NUMERIC), index=list(NUMERIC).index("Q19_Current_Monthly_Spend_INR"),
@@ -344,6 +439,10 @@ with tabs[5]:
     if len(d) > 10:
         r, p = stats.spearmanr(d[xv], d[yv])
         st.write(f"**Spearman ρ = {r:.2f}** ({strength_rho(r)}), p = {p:.3g}, n = {len(d)}")
+        explain(f"Each dot is one respondent, coloured by interest. The link between '{NUMERIC[xv]}' and "
+                f"'{NUMERIC[yv]}' is {strength_rho(r)} (ρ = {r:.2f}).",
+                "A moderate or strong link means one variable is a useful screening signal for the other; a "
+                "negligible link means it should not be used for targeting.")
 
 # ------------------------------------------------------------------ 7 Simulated pipeline
 with tabs[6]:
@@ -358,6 +457,10 @@ with tabs[6]:
     a, b = st.columns(2)
     with a:
         chart(fig, 360)
+        explain(f"Of {len(df):,} leads, {100 * booked.mean():.0f}% book a consultation and {100 * cust.mean():.1f}% "
+                "become paying customers.",
+                "Stated interest is much higher than simulated conversion, so a real pilot must measure actual "
+                "bookings and payments before scaling.")
     spend = df.SIM_Lead_Cost_INR.sum() + 600 * booked.sum()
     with b:
         c = st.columns(2)
@@ -380,6 +483,10 @@ with tabs[6]:
                      title="Simulated CAC by lead source (lower is better)", hover_data=["Customers", "Revenue ÷ spend"])
         fig.update_yaxes(categoryorder="total descending", title="")
         chart(fig, 380)
+        explain(f"{chn['Lead source'].iloc[0]} has the lowest simulated cost per customer (₹{chn['CAC (₹)'].iloc[0]:,}) "
+                f"and {chn['Lead source'].iloc[-1]} the highest (₹{chn['CAC (₹)'].iloc[-1]:,}).",
+                "Marketing budget should start with the cheapest channels; these costs are assumptions to test, "
+                "not observed results.")
     st.subheader("What-if: how sensitive is the model?")
     a, b, c3 = st.columns(3)
     cm = a.slider("Conversion vs assumption", 0.25, 1.5, 1.0, 0.05)
