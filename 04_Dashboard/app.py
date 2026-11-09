@@ -87,18 +87,19 @@ def pct_bar(series, title, order=None, horizontal=True):
     s = series.astype(object).value_counts()
     if order is not None:
         s = s.reindex([o for o in order if o in s.index] + [i for i in s.index if i not in order])
-    d = pd.DataFrame({"Category": s.index.astype(str), "Count": s.values})
+    import textwrap
+    d = pd.DataFrame({"Category": ["<br>".join(textwrap.wrap(str(c), 24)) for c in s.index], "Count": s.values})
     d["Percent"] = 100 * d.Count / d.Count.sum()
     d["Label"] = d.apply(lambda r: f"{r.Percent:.1f}% ({r.Count})", axis=1)
     d["Colour"] = np.where(d.Category.isin(NONRESP), "Non-response", "Answer")
     fig = px.bar(d, x="Percent" if horizontal else "Category", y="Category" if horizontal else "Percent",
                  orientation="h" if horizontal else "v", text="Label", color="Colour",
                  color_discrete_map={"Answer": BLUE, "Non-response": GREY}, title=title)
-    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig.update_traces(textposition="auto", insidetextanchor="end", cliponaxis=False)
     fig.update_layout(showlegend=False)
     if horizontal:
         fig.update_yaxes(categoryorder="array", categoryarray=list(d.Category)[::-1], title="")
-        fig.update_xaxes(title="% of filtered respondents", range=[0, d.Percent.max() * 1.35])
+        fig.update_xaxes(title="% of filtered respondents", range=[0, d.Percent.max() * 1.6])
     return fig
 
 
